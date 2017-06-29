@@ -1,4 +1,165 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+/*
+ * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2008 Matt Lilek <webkit@mattlilek.com>
+ * Copyright (C) 2009 Joseph Pecoraro
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1.  Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ * 2.  Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ * 3.  Neither the name of Apple Computer, Inc. ("Apple") nor the names of
+ *     its contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+Utils = {}
+
+/**
+ * @param {!WebInspector.DOMNode} node
+ * @param {boolean=} optimized
+ * @return {string}
+ */
+Utils.xPath = function(node, optimized)
+{
+  if (node.nodeType === Node.DOCUMENT_NODE)
+    return "/";
+  var steps = [];
+  var contextNode = node;
+
+  while (contextNode) {
+    var step = Utils._xPathValue(contextNode, optimized);
+    if (!step)
+      break; // Error - bail out early.
+    steps.push(step);
+    if (step.optimized)
+      break;
+    contextNode = contextNode.parentNode;
+  }
+  steps.reverse();
+  return (steps.length && steps[0].optimized ? "" : "/") + steps.join("/");
+}
+/**
+ * @param {!WebInspector.DOMNode} node
+ * @param {boolean=} optimized
+ * @return {?WebInspector.DOMNodePathStep}
+ */
+Utils._xPathValue = function(node, optimized)
+{
+  var ownValue;
+  var ownIndex = Utils._xPathIndex(node);
+  if (ownIndex === -1)
+    return null; // Error.
+  switch (node.nodeType) {
+    case Node.ELEMENT_NODE:
+      if (optimized && node.getAttribute("id"))
+        return new DOMNodePathStep("//*[@id=\"" + node.getAttribute("id") + "\"]", true);
+      ownValue = node.localName;
+      break;
+    case Node.ATTRIBUTE_NODE:
+      ownValue = "@" + node.nodeName;
+      break;
+    case Node.TEXT_NODE:
+    case Node.CDATA_SECTION_NODE:
+      ownValue = "text()";
+      break;
+    case Node.PROCESSING_INSTRUCTION_NODE:
+      ownValue = "processing-instruction()";
+      break;
+    case Node.COMMENT_NODE:
+      ownValue = "comment()";
+      break;
+    case Node.DOCUMENT_NODE:
+      ownValue = "";
+      break;
+    default:
+      ownValue = "";
+      break;
+  }
+  if (ownIndex > 0)
+    ownValue += "[" + ownIndex + "]";
+  return new DOMNodePathStep(ownValue, node.nodeType === Node.DOCUMENT_NODE);
+}
+/**
+ * @param {!WebInspector.DOMNode} node
+ * @return {number}
+ */
+Utils._xPathIndex = function(node)
+{
+  // Returns -1 in case of error, 0 if no siblings matching the same expression, <XPath index among the same expression-matching sibling nodes> otherwise.
+  function areNodesSimilar(left, right)
+  {
+    if (left === right)
+      return true;
+    if (left.nodeType === Node.ELEMENT_NODE && right.nodeType === Node.ELEMENT_NODE)
+      return left.localName === right.localName;
+    if (left.nodeType === right.nodeType)
+      return true;
+    // XPath treats CDATA as text nodes.
+    var leftType = left.nodeType === Node.CDATA_SECTION_NODE ? Node.TEXT_NODE : left.nodeType;
+    var rightType = right.nodeType === Node.CDATA_SECTION_NODE ? Node.TEXT_NODE : right.nodeType;
+    return leftType === rightType;
+  }
+  var siblings = node.parentNode ? node.parentNode.children : null;
+  if (!siblings)
+    return 0; // Root node - no siblings.
+  var hasSameNamedElements;
+  for (var i = 0; i < siblings.length; ++i) {
+    if (areNodesSimilar(node, siblings[i]) && siblings[i] !== node) {
+      hasSameNamedElements = true;
+      break;
+    }
+  }
+  if (!hasSameNamedElements)
+    return 0;
+  var ownIndex = 1; // XPath indices start with 1.
+  for (var i = 0; i < siblings.length; ++i) {
+    if (areNodesSimilar(node, siblings[i])) {
+      if (siblings[i] === node)
+        return ownIndex;
+      ++ownIndex;
+    }
+  }
+  return -1; // An error occurred: |node| not found in parent's children.
+}
+
+var DOMNodePathStep = function(value, optimized)
+{
+  this.value = value;
+  this.optimized = optimized || false;
+}
+
+DOMNodePathStep.prototype = {
+  /**
+   * @override
+   * @return {string}
+   */
+  toString: function()
+  {
+    return this.value;
+  }
+}
+
+module.exports = Utils.xPath
+
+},{}],2:[function(require,module,exports){
 "use strict";
 
 var socket       = require("./socket");
@@ -114,7 +275,7 @@ function getByPath(obj, path) {
 
     return obj;
 }
-},{"./browser.utils":2,"./emitter":5,"./notify":16,"./socket":17,"./tab":18}],2:[function(require,module,exports){
+},{"./browser.utils":3,"./emitter":6,"./notify":18,"./socket":19,"./tab":20}],3:[function(require,module,exports){
 "use strict";
 
 var utils = exports;
@@ -292,7 +453,7 @@ utils.getLocation = function (url) {
     return location;
 };
 
-},{}],3:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 if (!("indexOf" in Array.prototype)) {
 
     Array.prototype.indexOf= function(find, i) {
@@ -439,7 +600,7 @@ if (!Array.prototype.filter) {
     };
 }
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 "use strict";
 var events  = require("./events");
 var utils   = require("./browser.utils");
@@ -770,7 +931,7 @@ sync.reloadBrowser = function (confirm) {
     }
 };
 
-},{"./browser.utils":2,"./emitter":5,"./events":6}],5:[function(require,module,exports){
+},{"./browser.utils":3,"./emitter":6,"./events":7}],6:[function(require,module,exports){
 "use strict";
 
 exports.events = {};
@@ -804,7 +965,7 @@ exports.on = function (name, func) {
         events[name].listeners.push(func);
     }
 };
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 exports._ElementCache = function () {
 
     var cache = {},
@@ -1085,7 +1246,7 @@ exports.manager = eventManager;
 
 
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1152,7 +1313,7 @@ exports.socketEvent = function (bs, eventManager) {
         }
     };
 };
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1221,7 +1382,7 @@ exports.socketEvent = function (bs) {
         return false;
     };
 };
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 "use strict";
 
 exports.plugins = {
@@ -1257,7 +1418,7 @@ exports.init = function (bs, eventManager) {
         }
     }
 };
-},{"./ghostmode.forms.input":8,"./ghostmode.forms.submit":10,"./ghostmode.forms.toggles":11}],10:[function(require,module,exports){
+},{"./ghostmode.forms.input":9,"./ghostmode.forms.submit":11,"./ghostmode.forms.toggles":12}],11:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1323,7 +1484,7 @@ exports.socketEvent = function (bs) {
         return false;
     };
 };
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1419,7 +1580,7 @@ exports.socketEvent = function (bs) {
         return false;
     };
 };
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 "use strict";
 
 var eventManager = require("./events").manager;
@@ -1428,7 +1589,8 @@ exports.plugins = {
     "scroll":   require("./ghostmode.scroll"),
     "clicks":   require("./ghostmode.clicks"),
     "forms":    require("./ghostmode.forms"),
-    "location": require("./ghostmode.location")
+    "location": require("./ghostmode.location"),
+    "xpath":    require("./ghostmode.xpath")
 };
 
 /**
@@ -1442,7 +1604,7 @@ exports.init = function (bs) {
         }
     }
 };
-},{"./events":6,"./ghostmode.clicks":7,"./ghostmode.forms":9,"./ghostmode.location":13,"./ghostmode.scroll":14}],13:[function(require,module,exports){
+},{"./events":7,"./ghostmode.clicks":8,"./ghostmode.forms":10,"./ghostmode.location":14,"./ghostmode.scroll":15,"./ghostmode.xpath":16}],14:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1492,7 +1654,7 @@ exports.setUrl = function (url) {
 exports.setPath = function (path) {
     window.location = window.location.protocol + "//" + window.location.host + path;
 };
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1666,7 +1828,24 @@ exports.getScrollTopPercentage = function (pos) {
     var percentage  = exports.getScrollPercentage(scrollSpace, pos);
     return percentage.y;
 };
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
+var getXPathForElement = require("../get_xpath");
+
+exports.init = function (bs, eventManager) {
+  bs.utils.getElementData = function (elem) {
+    return {
+      tagName: getXPathForElement(elem, true),
+      index: 0
+    };
+  };
+
+  bs.utils.getSingleElement = function (tagName, index) {
+    var doc = bs.utils.getDocument();
+    return doc.evaluate(tagName, doc, null, window.XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+  };
+};
+
+},{"../get_xpath":1}],17:[function(require,module,exports){
 "use strict";
 
 var socket       = require("./socket");
@@ -1744,7 +1923,7 @@ if (window.__karma__) {
     window.__bs_index__      = exports;
 }
 /**debug:end**/
-},{"./browser-sync":1,"./browser.utils":2,"./client-shims":3,"./code-sync":4,"./emitter":5,"./events":6,"./ghostmode":12,"./ghostmode.clicks":7,"./ghostmode.forms":9,"./ghostmode.forms.input":8,"./ghostmode.forms.submit":10,"./ghostmode.forms.toggles":11,"./ghostmode.location":13,"./ghostmode.scroll":14,"./notify":16,"./socket":17}],16:[function(require,module,exports){
+},{"./browser-sync":2,"./browser.utils":3,"./client-shims":4,"./code-sync":5,"./emitter":6,"./events":7,"./ghostmode":13,"./ghostmode.clicks":8,"./ghostmode.forms":10,"./ghostmode.forms.input":9,"./ghostmode.forms.submit":11,"./ghostmode.forms.toggles":12,"./ghostmode.location":14,"./ghostmode.scroll":15,"./notify":18,"./socket":19}],18:[function(require,module,exports){
 "use strict";
 
 var scroll = require("./ghostmode.scroll");
@@ -1870,7 +2049,7 @@ exports.flash = function (message, timeout) {
     return elem;
 };
 
-},{"./browser.utils":2,"./ghostmode.scroll":14}],17:[function(require,module,exports){
+},{"./browser.utils":3,"./ghostmode.scroll":15}],19:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1911,7 +2090,7 @@ exports.emit = function (name, data) {
 exports.on = function (name, func) {
     exports.socket.on(name, func);
 };
-},{}],18:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 var utils        = require("./browser.utils");
 var emitter      = require("./emitter");
 var $document    = utils.getDocument();
@@ -1948,4 +2127,4 @@ if (typeof $document.addEventListener === "undefined" ||
 } else {
     $document.addEventListener(visibilityChange, handleVisibilityChange, false);
 }
-},{"./browser.utils":2,"./emitter":5}]},{},[15]);
+},{"./browser.utils":3,"./emitter":6}]},{},[17]);
